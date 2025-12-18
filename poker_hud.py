@@ -398,10 +398,13 @@ class PokerHUD:
             reader = easyocr.Reader(['en'], gpu=False)
             
             # For demonstration, we'll simulate OCR scanning
-            # In real use, you would capture screen region and process it
-            logger.info("OCR scanning (simulated)...")
+            # TODO: In production, capture screen region and process it with reader.readtext()
+            # Example: result = reader.readtext(screen_image)
+            # Then extract text: result = [text for (bbox, text, prob) in result if prob > 0.5]
+            logger.info("OCR scanning (simulated - replace with actual screen capture in production)...")
             
-            # Simulated result - in real use, replace with actual screen capture
+            # Simulated result for demonstration purposes
+            # In production, replace this with actual OCR results from screen capture
             result = ['Player1', 'Player2', 'Fish123', 'ProGamer']
             
             logger.info(f"OCR detected players: {result}")

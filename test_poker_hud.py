@@ -212,7 +212,7 @@ def test_range_operations():
         print(f"✗ Expected 13 pocket pairs, got {len(pocket_pairs)}")
         return False
     
-    # Test suited hands
+    # Test suited hands (13 choose 2 = 78 unique suited combinations)
     suited = [h for h in all_hands if h.endswith('s')]
     if len(suited) == 78:
         print(f"✓ Correctly identified {len(suited)} suited hands")
@@ -220,7 +220,7 @@ def test_range_operations():
         print(f"✗ Expected 78 suited hands, got {len(suited)}")
         return False
     
-    # Test offsuit hands
+    # Test offsuit hands (13 choose 2 = 78 unique offsuit combinations)
     offsuit = [h for h in all_hands if h.endswith('o')]
     if len(offsuit) == 78:
         print(f"✓ Correctly identified {len(offsuit)} offsuit hands")
@@ -228,7 +228,7 @@ def test_range_operations():
         print(f"✗ Expected 78 offsuit hands, got {len(offsuit)}")
         return False
     
-    # Total should be 169 (13 pairs + 78 suited + 78 offsuit)
+    # Total should be 169 hands (13 pocket pairs + 78 suited + 78 offsuit)
     if len(all_hands) == 169:
         print(f"✓ Total of {len(all_hands)} hands is correct")
     else:
