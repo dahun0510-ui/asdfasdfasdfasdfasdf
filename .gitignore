@@ -1,0 +1,23 @@
+# Generated files
+poker_players.json
+poker_hud.log
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# EasyOCR
+.EasyOCR/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
