@@ -9,16 +9,15 @@ from PyQt6.QtWidgets import QMessageBox
 
 # === Local Imports ===
 from config import CONFIG_FILE, DB_FILE
+from interfaces import IDataStore
 
-class HudActions:
+class HudActions(IDataStore):
     """HUD 액션 관리 클래스"""
 
-    def __init__(self, manager):
-        self.manager = manager
-        self.config = manager.config
-        self.db = manager.db
+    def __init__(self, data_store: IDataStore):
+        self.data_store = data_store
 
-    def save_config(self):
+    def save_config(self) -> None:
         """설정 저장"""
         try:
             with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
@@ -28,7 +27,7 @@ class HudActions:
             logging.error(f"설정 파일 저장 실패: {e}")
             QMessageBox.critical(None, "오류", f"설정 파일 저장 실패:\n{e}")
 
-    def load_config(self) -> dict:
+    def load_config(self) -> Dict[str, Any]:
         """설정 로드"""
         try:
             if os.path.exists(CONFIG_FILE):
@@ -44,7 +43,7 @@ class HudActions:
             QMessageBox.warning(None, "경고", f"설정 파일 로드 실패, 기본 설정 사용:\n{e}")
             return {}
 
-    def save_database(self):
+    def save_database(self) -> None:
         """데이터베이스 저장"""
         try:
             with open(DB_FILE, 'w', encoding='utf-8') as f:
@@ -54,7 +53,7 @@ class HudActions:
             logging.error(f"데이터베이스 저장 실패: {e}")
             QMessageBox.critical(None, "오류", f"데이터베이스 저장 실패:\n{e}")
 
-    def load_database(self) -> dict:
+    def load_database(self) -> Dict[str, Any]:
         """데이터베이스 로드"""
         try:
             if os.path.exists(DB_FILE):
@@ -70,49 +69,29 @@ class HudActions:
             QMessageBox.warning(None, "경고", f"데이터베이스 로드 실패, 빈 데이터베이스 사용:\n{e}")
             return {}
 
-    def update_player_style(self, player_id: str, style: str):
+    def update_player_style(self, player_id: str, style: str) -> None:
         """플레이어 스타일 업데이트"""
-        if player_id not in self.db:
-            self.db[player_id] = {}
+        self.data_store.update_player_style(player_id, style)
 
-        self.db[player_id]['style'] = style
-        self.save_database()
-        logging.info(f"플레이어 {player_id} 스타일 업데이트: {style}")
-
-        # HUD 업데이트
-        for hud in self.manager.huds:
-            if hud.player_id == player_id:
-                hud.update_info(player_id, style, hud.note)
-
-    def update_player_note(self, player_id: str, note: str):
+    def update_player_note(self, player_id: str, note: str) -> None:
         """플레이어 메모 업데이트"""
-        if player_id not in self.db:
-            self.db[player_id] = {}
+        if player_id not in self.data_store.db:
+            self.data_store.db[player_id] = {}
 
-        self.db[player_id]['note'] = note
-        self.save_database()
+        self.data_store.db[player_id]['note'] = note
+        self.data_store.save_database()
         logging.info(f"플레이어 {player_id} 메모 업데이트")
 
-        # HUD 업데이트
-        for hud in self.manager.huds:
-            if hud.player_id == player_id:
-                hud.update_info(player_id, hud.style, note)
-
-    def delete_player(self, player_id: str):
+    def delete_player(self, player_id: str) -> None:
         """플레이어 삭제"""
-        if player_id in self.db:
-            del self.db[player_id]
-            self.save_database()
+        if player_id in self.data_store.db:
+            del self.data_store.db[player_id]
+            self.data_store.save_database()
             logging.info(f"플레이어 {player_id} 삭제됨")
-
-            # HUD 초기화
-            for hud in self.manager.huds:
-                if hud.player_id == player_id:
-                    hud.update_info("스캔 대기", "⚪ Unknown", "")
 
     def get_player_data(self, player_id: str) -> Optional[Dict[str, Any]]:
         """플레이어 데이터 조회"""
-        return self.db.get(player_id, {})
+        return self.data_store.get_player_data(player_id)
 
     def update_player_range(self, player_id: str, position: str, hand: str, action: str):
         """플레이어 레인지 업데이트"""

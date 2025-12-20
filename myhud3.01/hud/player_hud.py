@@ -168,31 +168,8 @@ class PlayerHUD(QWidget):
         self.style = style_key
 
         # RFI 계산
-        rfi_prefix = ""
-        sb_bb_star = ""
-
-        if name in self.manager.db:
-            ranges = self.manager.db[name].get('range', {})
-            if ranges:
-                all_hands = {}
-                sb_bb_hands = {}
-
-                for pos in ranges.keys():
-                    pos_hands = ranges[pos].get('hands', {})
-                    if pos not in ['SB', 'BB']:
-                        all_hands.update(pos_hands)
-                    else:
-                        sb_bb_hands.update(pos_hands)
-
-                if all_hands:
-                    rfi_pct = self._calculate_rfi_from_range(all_hands)
-                    if rfi_pct > 0:
-                        rfi_prefix = f"{rfi_pct}% "
-
-                if sb_bb_hands:
-                    sb_bb_pct = self._calculate_rfi_from_range(sb_bb_hands)
-                    if sb_bb_pct > 0:
-                        sb_bb_star = "★"
+        rfi_prefix = self._calculate_rfi_prefix(name)
+        sb_bb_star = self._calculate_sb_bb_star(name)
 
         # 표시 이름 설정
         display_name = f"{rfi_prefix}{sb_bb_star}{name}"
@@ -231,19 +208,44 @@ class PlayerHUD(QWidget):
 
         self.update_style()
 
+    def _calculate_rfi_prefix(self, name: str) -> str:
+        """RFI 접두사 계산"""
+        if name in self.manager.db:
+            ranges = self.manager.db[name].get('range', {})
+            if ranges:
+                all_hands = {k: v for pos in ranges.keys() if pos not in ['SB', 'BB'] for k, v in ranges[pos].get('hands', {}).items()}
+
+                if all_hands:
+                    rfi_pct = self._calculate_rfi_from_range(all_hands)
+                    if rfi_pct > 0:
+                        return f"{rfi_pct}% "
+        return ""
+
+    def _calculate_sb_bb_star(self, name: str) -> str:
+        """SB/BB 스타 계산"""
+        if name in self.manager.db:
+            ranges = self.manager.db[name].get('range', {})
+            if ranges:
+                sb_bb_hands = {}
+                for pos in ['SB', 'BB']:
+                    if pos in ranges:
+                        sb_bb_hands.update(ranges[pos].get('hands', {}))
+
+                if sb_bb_hands:
+                    sb_bb_pct = self._calculate_rfi_from_range(sb_bb_hands)
+                    if sb_bb_pct > 0:
+                        return "★"
+        return ""
+
     def _calculate_rfi_from_range(self, hands_dict: dict) -> int:
         """레인지에서 RFI % 계산"""
-        if not hands_dict:
+        if not hands_dict or not isinstance(hands_dict, dict):
             return 0
 
         max_pct = 0
         for hand in hands_dict.keys():
-            hand_data = hands_dict[hand]
-            if isinstance(hand_data, dict):
-                action = hand_data.get('action', 'raise')
-                if action != 'raise':
-                    continue
-
+            if not isinstance(hand, str):
+                continue
             pct = HAND_PERCENTILE.get(hand, 0)
             if pct > max_pct:
                 max_pct = pct

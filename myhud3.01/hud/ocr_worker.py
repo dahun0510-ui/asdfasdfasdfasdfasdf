@@ -65,31 +65,50 @@ class OCRWorker(QThread):
 
     def _perform_scan(self):
         """스캔 수행"""
-        try:
-            self.scan_started.emit()
+        for attempt in range(self.max_retries + 1):
+            try:
+                self.scan_started.emit()
 
-            # 스크린샷 캡처 (실제 구현 필요)
-            screenshot = self._capture_screen()
+                # 스크린샷 캡처 (실제 구현 필요)
+                screenshot = self._capture_screen()
 
-            if screenshot is None:
-                logging.warning("스크린샷 캡처 실패")
-                return
+                if screenshot is None:
+                    logging.warning("스크린샷 캡처 실패")
+                    if attempt < self.max_retries:
+                        time.sleep(self.retry_delay / 1000.0)
+                        continue
+                    else:
+                        self.error_occurred.emit("스크린샷 캡처 실패")
+                        return
 
-            # OCR 수행
-            ocr_data = self._perform_ocr(screenshot)
+                # OCR 수행
+                ocr_data = self._perform_ocr(screenshot)
 
-            if ocr_data:
-                self.ocr_result.emit(ocr_data)
-                logging.debug(f"OCR 결과: {len(ocr_data)} 개 항목")
+                if ocr_data:
+                    self.ocr_result.emit(ocr_data)
+                    logging.debug(f"OCR 결과: {len(ocr_data)} 개 항목")
+                    break  # 성공 시 루프 탈출
+                else:
+                    if attempt < self.max_retries:
+                        time.sleep(self.retry_delay / 1000.0)
+                        continue
+                    else:
+                        self.error_occurred.emit("OCR 수행 실패")
+                        return
 
-            # 스캔 간격 대기
-            time.sleep(self.scan_interval / 1000.0)
-
-        except Exception as e:
-            logging.error(f"스캔 수행 중 오류: {e}")
-            self.error_occurred.emit(f"스캔 오류: {e}")
+            except Exception as e:
+                logging.error(f"스캔 수행 중 오류 (시도 {attempt + 1}/{self.max_retries + 1}): {e}")
+                if attempt < self.max_retries:
+                    time.sleep(self.retry_delay / 1000.0)
+                    continue
+                else:
+                    self.error_occurred.emit(f"스캔 오류: {e}")
+                    return
         finally:
             self.scan_finished.emit()
+
+        # 스캔 간격 대기
+        time.sleep(self.scan_interval / 1000.0)
 
     def _capture_screen(self) -> Optional[QPixmap]:
         """스크린샷 캡처"""

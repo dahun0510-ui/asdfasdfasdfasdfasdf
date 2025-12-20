@@ -16,6 +16,20 @@ from hud.ocr_worker import OCRWorker
 from hud.hud_actions import HudActions
 from hud.hud_events import HudEvents
 from control_panel.control_panel import ControlPanel
+from logger_manager import LoggerManager
+
+class PokerHUDManager(QWidget):
+    """포커 HUD 메인 매니저"""
+
+# === Local Imports ===
+from config import CONFIG_FILE, DB_FILE, DEFAULT_CONFIG
+from hud.player_hud import PlayerHUD
+from hud.ocr_worker import OCRWorker
+from hud.hud_actions import HudActions
+from hud.hud_events import HudEvents
+from control_panel.control_panel import ControlPanel
+from logger_manager import LoggerManager
+from file_data_store import FileDataStore
 
 class PokerHUDManager(QWidget):
     """포커 HUD 메인 매니저"""
@@ -29,28 +43,17 @@ class PokerHUDManager(QWidget):
         self.is_scanning = False
 
         # 컴포넌트 초기화
-        self.hud_actions = None
+        self.data_store = FileDataStore()
+        self.hud_actions = HudActions(self.data_store)
         self.hud_events = None
         self.ocr_worker = None
         self.control_panel = None
         self.tray_icon = None
 
-        self.init_logging()
+        LoggerManager.init_logging()
         self.init_components()
         self.init_tray_icon()
         self.load_data()
-
-    def init_logging(self):
-        """로깅 초기화"""
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler('poker_hud.log'),
-                logging.StreamHandler(sys.stdout)
-            ]
-        )
-        logging.info("Poker HUD 시작")
 
     def init_components(self):
         """컴포넌트 초기화"""

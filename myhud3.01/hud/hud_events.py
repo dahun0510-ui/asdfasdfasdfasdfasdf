@@ -20,6 +20,21 @@ class HudEvents:
         self.key_timer.timeout.connect(self._reset_key_state)
         self.pressed_keys = set()
 
+        # 액션 핸들러 딕셔너리 (OCP 준수)
+        self.action_handlers = {
+            "toggle_scan": self._handle_toggle_scan,
+            "toggle_move": self._handle_toggle_move,
+            "fish": lambda: self._handle_style_change("🟢 Fish"),
+            "tag": lambda: self._handle_style_change("🟡 TAG"),
+            "nit": lambda: self._handle_style_change("🔴 Nit"),
+            "lag": lambda: self._handle_style_change("🔵 LAG"),
+            "maniac": lambda: self._handle_style_change("🟠 Maniac"),
+            "weird": lambda: self._handle_style_change("🟣 Weird"),
+            "unknown": lambda: self._handle_style_change("⚪ Unknown"),
+            "range": self._handle_range,
+            "delete_player": self._handle_delete_player,
+        }
+
     def handle_global_key_press(self, event: QKeyEvent):
         """전역 키보드 이벤트 처리"""
         key = event.key()
@@ -141,47 +156,43 @@ class HudEvents:
                 break
 
     def _perform_action(self, action_key: str):
-        """액션 수행"""
+        """액션 수행 (전략 패턴 적용)"""
         logging.info(f"단축키 액션 실행: {action_key}")
 
-        if action_key == "toggle_scan":
-            if self.manager.control_panel:
-                self.manager.control_panel.toggle_scan()
+        handler = self.action_handlers.get(action_key)
+        if handler:
+            handler()
+        else:
+            logging.warning(f"알 수 없는 액션: {action_key}")
 
-        elif action_key == "toggle_move":
-            # 포커스된 HUD의 이동 모드 토글
-            focused_hud = self._get_focused_hud()
-            if focused_hud:
-                focused_hud.toggle_move()
+    def _handle_toggle_scan(self):
+        """스캔 토글 핸들러"""
+        if self.manager.control_panel:
+            self.manager.control_panel.toggle_scan()
 
-        elif action_key in ["fish", "tag", "nit", "lag", "maniac", "weird", "unknown"]:
-            # 포커스된 HUD의 스타일 변경
-            focused_hud = self._get_focused_hud()
-            if focused_hud:
-                style_map = {
-                    "fish": "🟢 Fish",
-                    "tag": "🟡 TAG",
-                    "nit": "🔴 Nit",
-                    "lag": "🔵 LAG",
-                    "maniac": "🟠 Maniac",
-                    "weird": "🟣 Weird",
-                    "unknown": "⚪ Unknown"
-                }
-                style = style_map.get(action_key)
-                if style:
-                    focused_hud.change_style(style)
+    def _handle_toggle_move(self):
+        """이동 모드 토글 핸들러"""
+        focused_hud = self._get_focused_hud()
+        if focused_hud:
+            focused_hud.toggle_move()
 
-        elif action_key == "range":
-            # 포커스된 HUD의 레인지 창 열기
-            focused_hud = self._get_focused_hud()
-            if focused_hud:
-                focused_hud.open_range_window()
+    def _handle_style_change(self, style: str):
+        """스타일 변경 핸들러"""
+        focused_hud = self._get_focused_hud()
+        if focused_hud:
+            focused_hud.change_style(style)
 
-        elif action_key == "delete_player":
-            # 포커스된 HUD의 플레이어 삭제
-            focused_hud = self._get_focused_hud()
-            if focused_hud:
-                focused_hud.delete_player()
+    def _handle_range(self):
+        """레인지 창 열기 핸들러"""
+        focused_hud = self._get_focused_hud()
+        if focused_hud:
+            focused_hud.open_range_window()
+
+    def _handle_delete_player(self):
+        """플레이어 삭제 핸들러"""
+        focused_hud = self._get_focused_hud()
+        if focused_hud:
+            focused_hud.delete_player()
 
     def _get_focused_hud(self):
         """포커스된 HUD 반환"""

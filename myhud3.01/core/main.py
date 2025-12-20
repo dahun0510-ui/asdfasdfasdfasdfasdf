@@ -1,0 +1,602 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+Poker HUD 3.01 메인 실행 파일
+OBS 아키텍처 기반 통합 포커 HUD 시스템
+
+이 모듈은 포커 HUD 애플리케이션의 메인 엔트리 포인트를 제공합니다.
+디자인 패턴(Factory, Observer, Strategy)을 활용한 모듈식 아키텍처를 구현합니다.
+"""
+
+# === Standard Library Imports ===
+import sys
+import os
+import signal
+import json
+import logging
+from pathlib import Path
+from typing import Dict, Any, Optional
+
+# 프로젝트 루트 경로 추가
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# === Local Imports ===
+from plugin_factory import PluginFactory
+from plugin_registry import PluginRegistry
+from plugin_loader import PluginLoader
+from plugin_lifecycle_manager import PluginLifecycleManager
+from interfaces import IManager
+
+# 플러그인 임포트
+from hud.hud_plugin import HUDPlugin
+from hud.ocr_plugin import OCRPlugin
+from hud.data_store_plugin import DataStorePlugin
+
+class PokerHUDApplication(IManager):
+    """
+    포커 HUD 메인 애플리케이션 클래스
+
+    이 클래스는 전체 포커 HUD 시스템의 중앙 컨트롤러 역할을 수행합니다.
+    플러그인 관리자와 데이터 플로우 관리자를 통합하여 시스템을 조율합니다.
+
+    Attributes:
+        _plugin_manager: 플러그인 생명주기 관리
+        _data_flow_manager: 데이터 흐름 및 이벤트 처리 관리
+        _config: 애플리케이션 설정
+        _running: 애플리케이션 실행 상태
+    """
+
+    def __init__(self) -> None:
+        """PokerHUDApplication 초기화"""
+        self._data_flow_manager: Optional[DataFlowManager] = None
+        self._plugin_factory: Optional[PluginFactory] = None
+        self._plugin_registry: Optional[PluginRegistry] = None
+        self._plugin_loader: Optional[PluginLoader] = None
+        self._lifecycle_manager: Optional[PluginLifecycleManager] = None
+        self._config: Dict[str, Any] = DEFAULT_CONFIG.copy()
+        self._running = False
+
+        # 로깅 설정 (한 번만 수행)
+        if not logging.getLogger().hasHandlers():
+            logging.basicConfig(
+                level=logging.INFO,
+                format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+            )
+        self.logger = logging.getLogger(__name__)
+
+    @property
+    def name(self) -> str:
+        """애플리케이션 이름"""
+        return "Poker HUD Application"
+
+    @property
+    def version(self) -> str:
+        """애플리케이션 버전"""
+        return "3.01"
+
+    def initialize(self, config: Dict[str, Any]) -> bool:
+        """애플리케이션 초기화"""
+        try:
+            # 입력 유효성 검사
+            if not isinstance(config, dict):
+                self.logger.error("Invalid config type: expected dict")
+                return False
+
+            self.logger.info("Initializing Poker HUD Application...")
+
+            # 설정 업데이트 (안전하게)
+            safe_config = {k: v for k, v in config.items() if isinstance(k, str)}
+            self._config.update(safe_config)
+
+            # 데이터 플로우 관리자 초기화
+            self._data_flow_manager = DataFlowManager()
+            df_config = {
+                'cache_enabled': self._config.get('cache_enabled', True)
+            }
+            if not self._data_flow_manager.initialize(df_config):
+                self.logger.error("Failed to initialize DataFlowManager")
+                return False
+
+            # 플러그인 시스템 초기화
+            self._plugin_factory = PluginFactory()
+            self._plugin_registry = PluginRegistry()
+            self._plugin_loader = PluginLoader(self._plugin_registry)
+            self._lifecycle_manager = PluginLifecycleManager(self._plugin_loader)
+
+            # 플러그인 등록
+            self._register_plugins()
+
+            # 생명주기 관리자 초기화
+            plugin_configs = self._get_plugin_configs()
+            if not self._lifecycle_manager.initialize_plugins(plugin_configs):
+                self.logger.error("Failed to initialize plugin lifecycle manager")
+                return False
+
+            self.logger.info("Poker HUD Application initialized successfully")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Failed to initialize application: {e}")
+            return False
+
+    def start(self) -> bool:
+        """애플리케이션 시작"""
+        try:
+            if self._running:
+                return True
+
+            self.logger.info("Starting Poker HUD Application...")
+
+            # 데이터 플로우 관리자 시작
+            if not self._data_flow_manager.start():
+                self.logger.error("Failed to start DataFlowManager")
+                return False
+
+            # 플러그인 생명주기 시작
+            if not self._lifecycle_manager.start_plugins():
+                self.logger.error("Failed to start plugins")
+                return False
+
+            self._running = True
+            self.logger.info("Poker HUD Application started successfully")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Failed to start application: {e}")
+            return False
+
+    def stop(self) -> bool:
+        """애플리케이션 중지"""
+        try:
+            if not self._running:
+                return True
+
+            self.logger.info("Stopping Poker HUD Application...")
+
+            self._running = False
+
+            # 플러그인 생명주기 중지
+            if self._lifecycle_manager:
+                self._lifecycle_manager.stop_plugins()
+
+            # 데이터 플로우 관리자 중지
+            if self._data_flow_manager:
+                self._data_flow_manager.stop()
+
+            self.logger.info("Poker HUD Application stopped successfully")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Failed to stop application: {e}")
+            return False
+
+    def shutdown(self) -> bool:
+        """애플리케이션 종료"""
+        try:
+            self.logger.info("Shutting down Poker HUD Application...")
+
+            self.stop()
+
+            # 플러그인 생명주기 종료
+            if self._lifecycle_manager:
+                self._lifecycle_manager.shutdown_plugins()
+
+            # 데이터 플로우 관리자 종료
+            if self._data_flow_manager:
+                self._data_flow_manager.shutdown()
+
+            self.logger.info("Poker HUD Application shutdown successfully")
+            return True
+
+        except Exception as e:
+            self.logger.error(f"Failed to shutdown application: {e}")
+            return False
+
+    def _register_plugins(self):
+        """플러그인 등록"""
+        try:
+            # 플러그인 클래스 등록
+            self._plugin_factory.register_plugin_class('hud_plugin', HUDPlugin)
+            self._plugin_factory.register_plugin_class('ocr_plugin', OCRPlugin)
+            self._plugin_factory.register_plugin_class('data_store_plugin', DataStorePlugin)
+
+            # 팩토리 등록
+            self._plugin_registry.register_factory('hud_plugin', self._plugin_factory)
+            self._plugin_registry.register_factory('ocr_plugin', self._plugin_factory)
+            self._plugin_registry.register_factory('data_store_plugin', self._plugin_factory)
+
+            self.logger.info("Plugin classes registered successfully")
+
+        except Exception as e:
+            self.logger.error(f"Failed to register plugins: {e}")
+
+    def _get_plugin_configs(self) -> Dict[str, Dict[str, Any]]:
+        """플러그인 설정 반환"""
+        return {
+            'hud_plugin': {
+                'enabled': True,
+                'priority': 1,
+                'data_flow_manager': self._data_flow_manager
+            },
+            'ocr_plugin': {
+                'enabled': True,
+                'priority': 2,
+                'data_flow_manager': self._data_flow_manager
+            },
+            'data_store_plugin': {
+                'enabled': True,
+                'priority': 3,
+                'data_flow_manager': self._data_flow_manager
+            }
+        }
+
+    def get_component(self, component_type: str) -> Optional[Any]:
+        """컴포넌트 조회"""
+        if component_type == 'plugin_manager':
+            return self._plugin_manager
+        elif component_type == 'data_flow_manager':
+            return self._data_flow_manager
+        elif component_type in self._plugins:
+            return self._plugins[component_type]
+        return None
+
+    def get_status(self) -> Dict[str, Any]:
+        """애플리케이션 상태 반환"""
+        return {
+            'running': self._running,
+            'version': self.version,
+            'plugins': list(self._plugins.keys()),
+            'data_flow_stats': self._data_flow_manager.get_stats() if self._data_flow_manager else {},
+            'plugin_stats': {
+                'loaded': len(self._plugin_manager.get_active_plugins()) if self._plugin_manager else 0,
+                'total': len(self._plugins)
+            }
+        }
+        self._health_status = HealthStatus.HEALTHY
+
+    @property
+    def name(self) -> str:
+        return "Poker HUD Application"
+
+    @property
+    def version(self) -> str:
+        return "3.01"
+
+    @property
+    def component_type(self) -> ComponentType:
+        return ComponentType.DATA_FLOW  # 메인 애플리케이션은 데이터 플로우 타입
+
+    @property
+    def health_status(self) -> HealthStatus:
+        return self._health_status
+
+    async def initialize(self, config: ComponentConfig) -> Result[bool, str]:
+        """애플리케이션 초기화"""
+        try:
+            print("=== Poker HUD Application Initializing ===")
+
+            # 설정 로드
+            self._config = self._load_config()
+            self._config.update(config.settings)  # 추가 설정 병합
+
+            # 데이터 플로우 관리자 초기화
+            self._data_flow_manager = DataFlowManager()
+            df_config = ComponentConfig(
+                id="data_flow_manager",
+                settings={"cache_enabled": self._config.get("cache_enabled", True)}
+            )
+            df_result = await self._data_flow_manager.initialize(df_config)
+            if not df_result.success:
+                self._health_status = HealthStatus.UNHEALTHY
+                return Result.err(f"Failed to initialize DataFlowManager: {df_result.error}")
+
+            # 플러그인 관리자 초기화
+            self._plugin_manager = PluginManager()
+            pm_config = ComponentConfig(
+                id="plugin_manager",
+                settings={
+                    "plugin_dir": self._config.get("plugin_dir", "plugins"),
+                    "plugin_configs": self._get_plugin_configs()
+                }
+            )
+            pm_result = await self._plugin_manager.initialize(pm_config)
+            if not pm_result.success:
+                self._health_status = HealthStatus.UNHEALTHY
+                return Result.err(f"Failed to initialize PluginManager: {pm_result.error}")
+
+            print("=== Poker HUD Application Initialized ===")
+            self._health_status = HealthStatus.HEALTHY
+            return Result.ok(True)
+
+        except Exception as e:
+            self._health_status = HealthStatus.UNHEALTHY
+            return Result.err(f"Failed to initialize application: {str(e)}")
+
+    async def start(self) -> Result[bool, str]:
+        """애플리케이션 시작"""
+        try:
+            print("=== Poker HUD Application Starting ===")
+
+            if self._running:
+                return Result.ok(True)
+
+            # 데이터 플로우 관리자 시작
+            if self._data_flow_manager:
+                df_result = await self._data_flow_manager.start()
+                if not df_result.success:
+                    return Result.err(f"Failed to start DataFlowManager: {df_result.error}")
+
+            # 플러그인 관리자 시작
+            if self._plugin_manager:
+                pm_result = await self._plugin_manager.start()
+                if not pm_result.success:
+                    return Result.err(f"Failed to start PluginManager: {pm_result.error}")
+
+            self._running = True
+            print("=== Poker HUD Application Started ===")
+            return Result.ok(True)
+
+        except Exception as e:
+            self._health_status = HealthStatus.UNHEALTHY
+            return Result.err(f"Failed to start application: {str(e)}")
+
+    async def stop(self) -> Result[bool, str]:
+        """애플리케이션 중지"""
+        try:
+            print("=== Poker HUD Application Stopping ===")
+
+            if not self._running:
+                return Result.ok(True)
+
+            self._running = False
+
+            # 플러그인 관리자 중지
+            if self._plugin_manager:
+                pm_result = await self._plugin_manager.stop()
+                if not pm_result.success:
+                    print(f"Warning: Failed to stop PluginManager: {pm_result.error}")
+
+            # 데이터 플로우 관리자 중지
+            if self._data_flow_manager:
+                df_result = await self._data_flow_manager.stop()
+                if not df_result.success:
+                    print(f"Warning: Failed to stop DataFlowManager: {df_result.error}")
+
+            print("=== Poker HUD Application Stopped ===")
+            self._health_status = HealthStatus.DEGRADED
+            return Result.ok(True)
+
+        except Exception as e:
+            self._health_status = HealthStatus.UNHEALTHY
+            return Result.err(f"Failed to stop application: {str(e)}")
+
+    async def shutdown(self) -> Result[bool, str]:
+        """애플리케이션 종료"""
+        try:
+            print("=== Poker HUD Application Shutting Down ===")
+
+            stop_result = await self.stop()
+            if not stop_result.success:
+                print(f"Warning: Failed to stop application: {stop_result.error}")
+
+            # 컴포넌트 정리
+            if self._plugin_manager:
+                pm_result = await self._plugin_manager.shutdown()
+                if not pm_result.success:
+                    print(f"Warning: Failed to shutdown PluginManager: {pm_result.error}")
+                self._plugin_manager = None
+
+            if self._data_flow_manager:
+                df_result = await self._data_flow_manager.shutdown()
+                if not df_result.success:
+                    print(f"Warning: Failed to shutdown DataFlowManager: {df_result.error}")
+                self._data_flow_manager = None
+
+            print("=== Poker HUD Application Shutdown Complete ===")
+            self._health_status = HealthStatus.UNHEALTHY
+            return Result.ok(True)
+
+        except Exception as e:
+            return Result.err(f"Failed to shutdown application: {str(e)}")
+
+    def get_component(self, component_type: ComponentType):
+        """컴포넌트 조회"""
+        try:
+            if component_type == ComponentType.PLUGIN_MANAGER:
+                return self._plugin_manager
+            elif component_type == ComponentType.DATA_FLOW:
+                return self._data_flow_manager
+            else:
+                return None
+        except Exception as e:
+            print(f"Failed to get component {component_type}: {e}")
+            return None
+
+    async def start_application(self) -> Result[bool, str]:
+        """애플리케이션 시작 (IManager 인터페이스)"""
+        return await self.start()
+
+    async def stop_application(self) -> Result[bool, str]:
+        """애플리케이션 중지 (IManager 인터페이스)"""
+        return await self.stop()
+
+    def _load_config(self) -> Dict[str, Any]:
+        """설정 파일 로드"""
+        try:
+            config_path = Path(__file__).parent / "config.json"
+            if config_path.exists():
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+            else:
+                # 기본 설정 반환
+                return {
+                    "cache_enabled": True,
+                    "plugin_dir": "plugins",
+                    "scan_interval": 1000,
+                    "hud_width": 120,
+                    "hud_height": 123
+                }
+        except Exception as e:
+            print(f"Failed to load config: {e}")
+            return {}
+
+    def _get_plugin_configs(self) -> Dict[str, Any]:
+        """플러그인 설정 생성"""
+        try:
+            plugin_configs = {}
+
+            # Player HUD 플러그인 설정
+            plugin_configs["player_hud_plugin"] = ComponentConfig(
+                id="player_hud_plugin",
+                settings={
+                    "manager": self,
+                    "hud_width": self._config.get("hud_width", 120),
+                    "hud_height": self._config.get("hud_height", 123),
+                    "task_queue": self._data_flow_manager._data_flow_system._task_queue
+                }
+            )
+
+            # OCR 플러그인 설정
+            plugin_configs["ocr_plugin"] = ComponentConfig(
+                id="ocr_plugin",
+                settings={
+                    "data_flow_manager": self._data_flow_manager,
+                    "manager": self,
+                    "scan_interval": self._config.get("scan_interval", 1000),
+                    "task_queue": self._data_flow_manager._data_flow_system._task_queue
+                }
+            )
+
+            # HUD 플러그인 설정
+            plugin_configs["hud_plugin"] = ComponentConfig(
+                id="hud_plugin",
+                settings={
+                    "scanner": None,  # OCR 플러그인에서 제공
+                    "display": None,  # Player HUD 플러그인에서 제공
+                    "data_flow_manager": self._data_flow_manager
+                }
+            )
+
+            # 데이터 저장소 플러그인 설정
+            plugin_configs["data_store_plugin"] = ComponentConfig(
+                id="data_store_plugin",
+                settings={
+                    "data_store": None,  # 실제 데이터 저장소 구현 필요
+                    "data_flow_manager": self._data_flow_manager
+                }
+            )
+
+            return plugin_configs
+
+        except Exception as e:
+            print(f"Failed to get plugin configs: {str(e)}")
+            return {}
+
+    def get_status(self) -> Dict[str, Any]:
+        """애플리케이션 상태 조회"""
+        try:
+            return {
+                "running": self._running,
+                "version": self.version,
+                "data_flow_stats": self._data_flow_manager.get_stats() if self._data_flow_manager else {},
+                "active_plugins": list(self._plugin_manager.get_loaded_plugins().keys()) if self._plugin_manager else [],
+                "health_status": self._health_status.value
+            }
+        except Exception as e:
+            print(f"Failed to get status: {e}")
+            return {"error": str(e)}
+
+    async def reload_plugin(self, plugin_name: str) -> Result[bool, str]:
+        """플러그인 리로드"""
+        try:
+            if self._plugin_manager:
+                return await self._plugin_manager.reload_plugin(plugin_name)
+            return Result.err("PluginManager not available")
+        except Exception as e:
+            return Result.err(f"Failed to reload plugin {plugin_name}: {str(e)}")
+
+    async def run(self):
+        """메인 이벤트 루프 실행 (비동기)"""
+        try:
+            print("=== Poker HUD Application Running ===")
+            print("Press Ctrl+C to stop...")
+
+            # 시그널 핸들러 설정 (비동기에서는 asyncio를 사용)
+            def signal_handler():
+                print("\nShutdown requested by user")
+                # 비동기에서 시그널 처리
+                import asyncio
+                asyncio.create_task(self.stop())
+
+            signal.signal(signal.SIGINT, lambda s, f: signal_handler())
+            signal.signal(signal.SIGTERM, lambda s, f: signal_handler())
+
+            # 메인 루프 (실제로는 GUI 이벤트 루프나 무한 루프)
+            while self._running:
+                # 상태 모니터링 및 로깅
+                await self._monitor_system()
+                import asyncio
+                await asyncio.sleep(5)  # 5초마다 상태 체크
+
+        except Exception as e:
+            print(f"Error in main loop: {e}")
+        finally:
+            await self.stop()
+
+    async def _monitor_system(self):
+        """시스템 상태 모니터링 (비동기)"""
+        try:
+            if self._data_flow_manager:
+                stats = self._data_flow_manager.get_stats()
+                print(f"System Status - States: {stats.get('state_count', 0)}, "
+                      f"Cache: {stats.get('cache_size', 0)}, "
+                      f"Routes: {len(stats.get('data_routes', {}))}")
+
+            if self._plugin_manager:
+                active_plugins = list(self._plugin_manager.get_loaded_plugins().keys())
+                print(f"Active Plugins: {active_plugins}")
+
+        except Exception as e:
+            print(f"Error monitoring system: {e}")
+
+    def _signal_handler(self, signum, frame):
+        """시그널 핸들러 (레거시)"""
+        print(f"\nReceived signal {signum}")
+        self._running = False
+
+async def main():
+    """메인 함수 (비동기)"""
+    app = PokerHUDApplication()
+
+    try:
+        # 초기화
+        init_config = ComponentConfig(id="poker_hud_app", settings={})
+        init_result = await app.initialize(init_config)
+        if not init_result.success:
+            print(f"Failed to initialize application: {init_result.error}")
+            return 1
+
+        # 시작
+        start_result = await app.start()
+        if not start_result.success:
+            print(f"Failed to start application: {start_result.error}")
+            return 1
+
+        # 실행
+        await app.run()
+
+        return 0
+
+    except Exception as e:
+        print(f"Application error: {e}")
+        return 1
+
+    finally:
+        shutdown_result = await app.shutdown()
+        if not shutdown_result.success:
+            print(f"Warning: Failed to shutdown cleanly: {shutdown_result.error}")
+
+if __name__ == "__main__":
+    import asyncio
+    sys.exit(asyncio.run(main()))
