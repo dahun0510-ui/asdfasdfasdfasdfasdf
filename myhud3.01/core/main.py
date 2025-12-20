@@ -18,15 +18,16 @@ import logging
 from pathlib import Path
 from typing import Dict, Any, Optional
 
-# 프로젝트 루트 경로 추가
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# 프로젝트 루트 경로 추가 (core 폴더의 부모 디렉토리)
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
 
 # === Local Imports ===
-from plugin_factory import PluginFactory
-from plugin_registry import PluginRegistry
-from plugin_loader import PluginLoader
-from plugin_lifecycle_manager import PluginLifecycleManager
-from interfaces import IManager
+from plugins.plugin_factory import PluginFactory
+from plugins.plugin_registry import PluginRegistry
+from plugins.plugin_loader import PluginLoader
+from plugins.plugin_lifecycle_manager import PluginLifecycleManager
+from plugins.interfaces import IManager
 
 # 플러그인 임포트
 from hud.hud_plugin import HUDPlugin
