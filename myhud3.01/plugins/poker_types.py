@@ -84,9 +84,9 @@ class ComponentConfig:
 
     각 컴포넌트의 초기화에 필요한 설정 정보를 담습니다.
     """
-    id: str  # 컴포넌트 고유 ID
     name: str
     type: ComponentType
+    id: Optional[str] = None  # 선택적 ID 필드
     enabled: bool = True
     priority: int = 0
     settings: Dict[str, Any] = None
@@ -97,6 +97,9 @@ class ComponentConfig:
             self.settings = {}
         if self.dependencies is None:
             self.dependencies = []
+        # id가 없으면 name을 기본값으로 사용
+        if self.id is None:
+            self.id = self.name.lower().replace(' ', '_')
 
 # === Plugin Information ===
 @dataclass

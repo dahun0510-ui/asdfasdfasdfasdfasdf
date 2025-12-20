@@ -116,6 +116,56 @@ except ImportError:
     PluginManager = MockPluginManager
     print("⚠️ 실제 PluginManager를 찾을 수 없어 Mock을 사용합니다")
 
+# === Automatic Issue Resolution ===
+async def auto_fix_issues():
+    """자동으로 알려진 문제를 해결합니다."""
+    import sys
+    import os
+    import shutil
+    from pathlib import Path
+
+    print("🔧 자동 문제 해결 중...")
+
+    # 1. Python 캐시 정리
+    project_root = Path(__file__).parent.parent
+    cache_dirs = []
+
+    for root, dirs, files in os.walk(project_root):
+        if '__pycache__' in dirs:
+            cache_dirs.append(os.path.join(root, '__pycache__'))
+
+    for cache_dir in cache_dirs:
+        try:
+            shutil.rmtree(cache_dir)
+            print(f"✅ 캐시 삭제: {cache_dir}")
+        except:
+            pass
+
+    # 2. .pyc 파일 삭제
+    for root, dirs, files in os.walk(project_root):
+        for file in files:
+            if file.endswith('.pyc'):
+                try:
+                    os.remove(os.path.join(root, file))
+                    print(f"✅ .pyc 파일 삭제: {file}")
+                except:
+                    pass
+
+    # 3. ComponentConfig 테스트
+    try:
+        from plugins.poker_types import ComponentConfig, ComponentType
+        test_config = ComponentConfig(
+            name="Test Component",
+            type=ComponentType.HUD_CORE
+        )
+        print(f"✅ ComponentConfig 테스트 성공 (id: {test_config.id})")
+    except Exception as e:
+        print(f"❌ ComponentConfig 테스트 실패: {e}")
+        return
+
+    print("🎉 자동 문제 해결 완료!")
+    print()
+
 # === Default Configuration ===
 DEFAULT_CONFIG = {
     "plugin_dir": "plugins",
@@ -389,7 +439,6 @@ class PokerHUDApplication(IManager):
             # 데이터 플로우 관리자 초기화
             self._data_flow_manager = DataFlowManager()
             df_config = ComponentConfig(
-                id="data_flow_manager",
                 name="Data Flow Manager",
                 type=ComponentType.EVENT_BUS,
                 settings={"cache_enabled": self._config.get("cache_enabled", True)}
@@ -402,7 +451,6 @@ class PokerHUDApplication(IManager):
             # 플러그인 관리자 초기화
             self._plugin_manager = PluginManager()
             pm_config = ComponentConfig(
-                id="plugin_manager",
                 name="Plugin Manager",
                 type=ComponentType.PLUGIN_MANAGER,
                 settings={
@@ -679,6 +727,9 @@ async def main():
     """메인 함수 (비동기)"""
     import argparse
 
+    # 자동 문제 해결
+    await auto_fix_issues()
+
     # 명령줄 인자 파싱
     parser = argparse.ArgumentParser(description='Poker HUD Application')
     parser.add_argument('--console', action='store_true',
@@ -696,7 +747,6 @@ async def main():
         try:
             # 간단한 초기화 테스트
             init_config = ComponentConfig(
-                id="poker_hud_app",
                 name="Poker HUD Application",
                 type=ComponentType.HUD_CORE,
                 settings={}
@@ -744,7 +794,6 @@ async def main():
         try:
             # 초기화
             init_config = ComponentConfig(
-                id="poker_hud_app",
                 name="Poker HUD Application",
                 type=ComponentType.HUD_CORE,
                 settings={}
@@ -795,7 +844,6 @@ async def main():
         try:
             # 초기화
             init_config = ComponentConfig(
-                id="poker_hud_app",
                 name="Poker HUD Application",
                 type=ComponentType.HUD_CORE,
                 settings={}
