@@ -678,45 +678,119 @@ class PokerHUDApplication(IManager):
         """메인 이벤트 루프 실행 (비동기)"""
         try:
             print("=== Poker HUD Application Running ===")
-            print("Press Ctrl+C to stop...")
+            print("📊 실시간 모니터링 모드")
+            print("💡 명령어:")
+            print("   'status' - 현재 상태 확인")
+            print("   'plugins' - 플러그인 목록")
+            print("   'stop' - 애플리케이션 중지")
+            print("   Ctrl+C - 강제 종료")
+            print("-" * 50)
 
-            # 시그널 핸들러 설정 (비동기에서는 asyncio를 사용)
+            # 시그널 핸들러 설정
             def signal_handler():
-                print("\nShutdown requested by user")
-                # 비동기에서 시그널 처리
+                print("\n🛑 Shutdown requested by user")
                 import asyncio
                 asyncio.create_task(self.stop())
 
             signal.signal(signal.SIGINT, lambda s, f: signal_handler())
             signal.signal(signal.SIGTERM, lambda s, f: signal_handler())
 
-            # 메인 루프 (실제로는 GUI 이벤트 루프나 무한 루프)
+            # 초기 상태 표시
+            await self._monitor_system()
+
+            # 메인 루프
             while self._running:
-                # 상태 모니터링 및 로깅
-                await self._monitor_system()
-                import asyncio
-                await asyncio.sleep(5)  # 5초마다 상태 체크
+                try:
+                    # 사용자 입력 대기 (비동기)
+                    import asyncio
+                    import sys
+
+                    if sys.platform != 'win32':
+                        # Unix-like 시스템에서만 입력 대기
+                        import select
+                        import tty
+                        import termios
+
+                        # 터미널 설정 저장
+                        old_settings = termios.tcgetattr(sys.stdin)
+
+                        try:
+                            tty.setcbreak(sys.stdin.fileno())
+
+                            # 1초 동안 입력 확인
+                            if select.select([sys.stdin], [], [], 1.0)[0]:
+                                char = sys.stdin.read(1)
+                                if char == 's':
+                                    await self._show_status()
+                                elif char == 'p':
+                                    await self._show_plugins()
+                                elif char == '\x03':  # Ctrl+C
+                                    break
+                        finally:
+                            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+                    else:
+                        # Windows에서는 간단히 대기
+                        await asyncio.sleep(5)
+                        await self._monitor_system()
+
+                except Exception as e:
+                    print(f"⚠️ 입력 처리 에러: {e}")
+                    await asyncio.sleep(5)
 
         except Exception as e:
-            print(f"Error in main loop: {e}")
+            print(f"❌ 메인 루프 에러: {e}")
         finally:
             await self.stop()
 
     async def _monitor_system(self):
-        """시스템 상태 모니터링 (비동기)"""
+        """시스템 상태 모니터링"""
         try:
-            if self._data_flow_manager:
-                stats = self._data_flow_manager.get_stats()
-                print(f"System Status - States: {stats.get('state_count', 0)}, "
-                      f"Cache: {stats.get('cache_size', 0)}, "
-                      f"Routes: {len(stats.get('data_routes', {}))}")
-
-            if self._plugin_manager:
-                active_plugins = list(self._plugin_manager.get_loaded_plugins().keys())
-                print(f"Active Plugins: {active_plugins}")
+            status = self.get_status()
+            print(f"📈 상태: {status.get('health_status', 'unknown')} | "
+                  f"실행: {status.get('running', False)} | "
+                  f"플러그인: {len(status.get('active_plugins', []))}")
 
         except Exception as e:
-            print(f"Error monitoring system: {e}")
+            print(f"⚠️ 모니터링 에러: {e}")
+
+    async def _show_status(self):
+        """상세 상태 표시"""
+        try:
+            status = self.get_status()
+            print("\n" + "="*50)
+            print("📊 시스템 상태")
+            print("="*50)
+            print(f"실행 상태: {status.get('running', False)}")
+            print(f"건강 상태: {status.get('health_status', 'unknown')}")
+            print(f"버전: {status.get('version', 'unknown')}")
+            print(f"활성 플러그인: {len(status.get('active_plugins', []))}")
+
+            if 'data_flow_stats' in status:
+                dfs = status['data_flow_stats']
+                print(f"데이터 플로우 - 상태: {dfs.get('state_count', 0)}, "
+                      f"캐시: {dfs.get('cache_size', 0)}")
+            print("="*50 + "\n")
+
+        except Exception as e:
+            print(f"⚠️ 상태 조회 에러: {e}")
+
+    async def _show_plugins(self):
+        """플러그인 목록 표시"""
+        try:
+            status = self.get_status()
+            plugins = status.get('active_plugins', [])
+            print("\n" + "="*50)
+            print("🔌 활성 플러그인")
+            print("="*50)
+            if plugins:
+                for i, plugin in enumerate(plugins, 1):
+                    print(f"{i}. {plugin}")
+            else:
+                print("활성 플러그인이 없습니다.")
+            print("="*50 + "\n")
+
+        except Exception as e:
+            print(f"⚠️ 플러그인 조회 에러: {e}")
 
     def _signal_handler(self, signum, frame):
         """시그널 핸들러 (레거시)"""
@@ -837,6 +911,60 @@ async def main():
     # GUI 모드 (기본)
     else:
         print("=== Poker HUD GUI Mode ===")
+
+        # GUI가 실제로 사용 가능한지 확인
+        if not GUI_AVAILABLE:
+            print("⚠️ GUI 컴포넌트를 사용할 수 없어 콘솔 모드로 자동 전환합니다.")
+            print("GUI 모드로 실행하려면 PyQt6을 설치하세요: pip install PyQt6")
+            print()
+
+            # 콘솔 모드로 전환
+            app = PokerHUDApplication()
+
+            try:
+                # 초기화
+                init_config = ComponentConfig(
+                    name="Poker HUD Application",
+                    type=ComponentType.HUD_CORE,
+                    settings={}
+                )
+                init_result = await app.initialize(init_config)
+                if not init_result.success:
+                    print(f"❌ 초기화 실패: {init_result.error}")
+                    return 1
+
+                print("✅ 초기화 성공")
+
+                # 시작
+                start_result = await app.start()
+                if not start_result.success:
+                    print(f"❌ 시작 실패: {start_result.error}")
+                    return 1
+
+                print("✅ 시작 성공")
+                print("실행 중... Ctrl+C로 중지")
+
+                # 실행 (간단한 모니터링)
+                while app._running:
+                    status = app.get_status()
+                    print(f"상태: {status.get('health_status', 'unknown')}, "
+                          f"실행중: {status.get('running', False)}")
+                    await asyncio.sleep(5)
+
+                return 0
+
+            except KeyboardInterrupt:
+                print("\n사용자에 의해 중지됨")
+                return 0
+            except Exception as e:
+                print(f"❌ 실행 에러: {e}")
+                return 1
+            finally:
+                shutdown_result = await app.shutdown()
+                if not shutdown_result.success:
+                    print(f"⚠️ 종료 경고: {shutdown_result.error}")
+
+        # 실제 GUI 모드
         print("GUI 모드로 실행합니다...")
 
         app = PokerHUDApplication()
@@ -863,8 +991,13 @@ async def main():
 
             print("✅ 시작 성공")
 
-            # GUI 실행 (실제로는 PyQt6 QApplication.run() 등)
-            print("GUI 실행 중...")
+            # 실제 GUI 실행 (PyQt6 QApplication 등)
+            print("🎯 GUI 실행 중...")
+            print("💡 실제 GUI를 보려면 PyQt6과 디스플레이 환경이 필요합니다.")
+            print("💡 현재는 콘솔 모니터링 모드로 실행됩니다.")
+            print()
+
+            # GUI 이벤트 루프 대신 콘솔 모니터링
             await app.run()
 
             return 0
