@@ -28,11 +28,115 @@ from plugins.plugin_registry import PluginRegistry
 from plugins.plugin_loader import PluginLoader
 from plugins.plugin_lifecycle_manager import PluginLifecycleManager
 from plugins.interfaces import IManager
+from plugins.poker_types import ComponentType, ComponentConfig, Result, HealthStatus
 
-# 플러그인 임포트
-from hud.hud_plugin import HUDPlugin
-from hud.ocr_plugin import OCRPlugin
-from hud.data_store_plugin import DataStorePlugin
+# === Mock Components for Testing ===
+class MockDataFlowManager:
+    """테스트용 모의 데이터 플로우 관리자"""
+
+    def __init__(self):
+        self._running = False
+
+    async def initialize(self, config: ComponentConfig) -> Result[bool, str]:
+        print("MockDataFlowManager 초기화")
+        return Result.ok(True)
+
+    async def start(self) -> Result[bool, str]:
+        print("MockDataFlowManager 시작")
+        self._running = True
+        return Result.ok(True)
+
+    async def stop(self) -> Result[bool, str]:
+        print("MockDataFlowManager 중지")
+        self._running = False
+        return Result.ok(True)
+
+    async def shutdown(self) -> Result[bool, str]:
+        print("MockDataFlowManager 종료")
+        return Result.ok(True)
+
+    def get_stats(self) -> dict:
+        return {"status": "mock", "running": self._running}
+
+# 플러그인 임포트 (GUI 모드에서만 사용)
+try:
+    GUI_AVAILABLE = True
+    from hud.hud_plugin import HUDPlugin
+    from hud.ocr_plugin import OCRPlugin
+    from hud.data_store_plugin import DataStorePlugin
+except ImportError:
+    GUI_AVAILABLE = False
+    print("⚠️ GUI 컴포넌트를 사용할 수 없습니다 (PyQt6 미설치 또는 디스플레이 없음)")
+    HUDPlugin = None
+    OCRPlugin = None
+    DataStorePlugin = None
+
+# DataFlowManager 설정
+if GUI_AVAILABLE:
+    try:
+        from core.data_flow_manager import DataFlowManager
+    except ImportError:
+        DataFlowManager = MockDataFlowManager
+        print("⚠️ 실제 DataFlowManager를 찾을 수 없어 Mock을 사용합니다")
+else:
+    DataFlowManager = MockDataFlowManager
+
+# PluginManager 설정
+try:
+    from plugins.plugin_manager import PluginManager
+except ImportError:
+    class MockPluginManager:
+        """테스트용 모의 플러그인 관리자"""
+
+        def __init__(self):
+            self._running = False
+
+        async def initialize(self, config: ComponentConfig) -> Result[bool, str]:
+            print("MockPluginManager 초기화")
+            return Result.ok(True)
+
+        async def start(self) -> Result[bool, str]:
+            print("MockPluginManager 시작")
+            self._running = True
+            return Result.ok(True)
+
+        async def stop(self) -> Result[bool, str]:
+            print("MockPluginManager 중지")
+            self._running = False
+            return Result.ok(True)
+
+        async def shutdown(self) -> Result[bool, str]:
+            print("MockPluginManager 종료")
+            return Result.ok(True)
+
+        def get_loaded_plugins(self) -> dict:
+            return {"mock_plugin": "loaded"}
+
+    PluginManager = MockPluginManager
+    print("⚠️ 실제 PluginManager를 찾을 수 없어 Mock을 사용합니다")
+
+# === Default Configuration ===
+DEFAULT_CONFIG = {
+    "plugin_dir": "plugins",
+    "cache_enabled": True,
+    "max_plugins": 10,
+    "scan_interval": 1000,  # ms
+    "debug_mode": False,
+    "log_level": "INFO"
+}
+
+# 플러그인 임포트 (GUI 모드에서만 사용)
+try:
+    GUI_AVAILABLE = True
+    from hud.hud_plugin import HUDPlugin
+    from hud.ocr_plugin import OCRPlugin
+    from hud.data_store_plugin import DataStorePlugin
+except ImportError:
+    GUI_AVAILABLE = False
+    print("⚠️ GUI 컴포넌트를 사용할 수 없습니다 (PyQt6 미설치 또는 디스플레이 없음)")
+    HUDPlugin = None
+    OCRPlugin = None
+    DataStorePlugin = None
 
 class PokerHUDApplication(IManager):
     """
@@ -285,6 +389,8 @@ class PokerHUDApplication(IManager):
             self._data_flow_manager = DataFlowManager()
             df_config = ComponentConfig(
                 id="data_flow_manager",
+                name="Data Flow Manager",
+                type=ComponentType.EVENT_BUS,
                 settings={"cache_enabled": self._config.get("cache_enabled", True)}
             )
             df_result = await self._data_flow_manager.initialize(df_config)
@@ -296,6 +402,8 @@ class PokerHUDApplication(IManager):
             self._plugin_manager = PluginManager()
             pm_config = ComponentConfig(
                 id="plugin_manager",
+                name="Plugin Manager",
+                type=ComponentType.PLUGIN_MANAGER,
                 settings={
                     "plugin_dir": self._config.get("plugin_dir", "plugins"),
                     "plugin_configs": self._get_plugin_configs()
@@ -568,35 +676,158 @@ class PokerHUDApplication(IManager):
 
 async def main():
     """메인 함수 (비동기)"""
-    app = PokerHUDApplication()
+    import argparse
 
-    try:
-        # 초기화
-        init_config = ComponentConfig(id="poker_hud_app", settings={})
-        init_result = await app.initialize(init_config)
-        if not init_result.success:
-            print(f"Failed to initialize application: {init_result.error}")
+    # 명령줄 인자 파싱
+    parser = argparse.ArgumentParser(description='Poker HUD Application')
+    parser.add_argument('--console', action='store_true',
+                       help='Run in console mode (no GUI)')
+    parser.add_argument('--test', action='store_true',
+                       help='Run quick test mode')
+
+    args = parser.parse_args()
+
+    # 테스트 모드
+    if args.test:
+        print("=== Poker HUD Quick Test ===")
+        app = PokerHUDApplication()
+
+        try:
+            # 간단한 초기화 테스트
+            init_config = ComponentConfig(
+                id="poker_hud_app",
+                name="Poker HUD Application",
+                type=ComponentType.HUD_CORE,
+                settings={}
+            )
+            init_result = await app.initialize(init_config)
+            if not init_result.success:
+                print(f"❌ 초기화 실패: {init_result.error}")
+                return 1
+
+            print("✅ 초기화 성공")
+
+            # 시작 테스트
+            start_result = await app.start()
+            if not start_result.success:
+                print(f"❌ 시작 실패: {start_result.error}")
+                return 1
+
+            print("✅ 시작 성공")
+
+            # 잠시 실행 후 중지
+            import asyncio
+            await asyncio.sleep(2)
+
+            stop_result = await app.stop()
+            if not stop_result.success:
+                print(f"⚠️ 중지 경고: {stop_result.error}")
+
+            print("✅ 테스트 완료")
+            return 0
+
+        except Exception as e:
+            print(f"❌ 테스트 에러: {e}")
+            return 1
+        finally:
+            shutdown_result = await app.shutdown()
+            if not shutdown_result.success:
+                print(f"⚠️ 종료 경고: {shutdown_result.error}")
+
+    # 콘솔 모드
+    elif args.console:
+        print("=== Poker HUD Console Mode ===")
+        print("GUI 없이 콘솔에서 실행합니다.")
+        app = PokerHUDApplication()
+
+        try:
+            # 초기화
+            init_config = ComponentConfig(
+                id="poker_hud_app",
+                name="Poker HUD Application",
+                type=ComponentType.HUD_CORE,
+                settings={}
+            )
+            init_result = await app.initialize(init_config)
+            if not init_result.success:
+                print(f"❌ 초기화 실패: {init_result.error}")
+                return 1
+
+            print("✅ 초기화 성공")
+
+            # 시작
+            start_result = await app.start()
+            if not start_result.success:
+                print(f"❌ 시작 실패: {start_result.error}")
+                return 1
+
+            print("✅ 시작 성공")
+            print("실행 중... Ctrl+C로 중지")
+
+            # 실행 (간단한 모니터링)
+            while app._running:
+                status = app.get_status()
+                print(f"상태: {status.get('health_status', 'unknown')}, "
+                      f"실행중: {status.get('running', False)}")
+                await asyncio.sleep(5)
+
+            return 0
+
+        except KeyboardInterrupt:
+            print("\n사용자에 의해 중지됨")
+            return 0
+        except Exception as e:
+            print(f"❌ 실행 에러: {e}")
+            return 1
+        finally:
+            shutdown_result = await app.shutdown()
+            if not shutdown_result.success:
+                print(f"⚠️ 종료 경고: {shutdown_result.error}")
+
+    # GUI 모드 (기본)
+    else:
+        print("=== Poker HUD GUI Mode ===")
+        print("GUI 모드로 실행합니다...")
+
+        app = PokerHUDApplication()
+
+        try:
+            # 초기화
+            init_config = ComponentConfig(
+                id="poker_hud_app",
+                name="Poker HUD Application",
+                type=ComponentType.HUD_CORE,
+                settings={}
+            )
+            init_result = await app.initialize(init_config)
+            if not init_result.success:
+                print(f"❌ 초기화 실패: {init_result.error}")
+                return 1
+
+            print("✅ 초기화 성공")
+
+            # 시작
+            start_result = await app.start()
+            if not start_result.success:
+                print(f"❌ 시작 실패: {start_result.error}")
+                return 1
+
+            print("✅ 시작 성공")
+
+            # GUI 실행 (실제로는 PyQt6 QApplication.run() 등)
+            print("GUI 실행 중...")
+            await app.run()
+
+            return 0
+
+        except Exception as e:
+            print(f"❌ 애플리케이션 에러: {e}")
             return 1
 
-        # 시작
-        start_result = await app.start()
-        if not start_result.success:
-            print(f"Failed to start application: {start_result.error}")
-            return 1
-
-        # 실행
-        await app.run()
-
-        return 0
-
-    except Exception as e:
-        print(f"Application error: {e}")
-        return 1
-
-    finally:
-        shutdown_result = await app.shutdown()
-        if not shutdown_result.success:
-            print(f"Warning: Failed to shutdown cleanly: {shutdown_result.error}")
+        finally:
+            shutdown_result = await app.shutdown()
+            if not shutdown_result.success:
+                print(f"⚠️ 종료 경고: {shutdown_result.error}")
 
 if __name__ == "__main__":
     import asyncio
