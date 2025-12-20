@@ -84,6 +84,7 @@ else:
 # PluginManager 설정
 try:
     from plugins.plugin_manager import PluginManager
+    print("✅ 실제 PluginManager를 사용합니다")
 except ImportError:
     class MockPluginManager:
         """테스트용 모의 플러그인 관리자"""

@@ -84,6 +84,7 @@ class ComponentConfig:
 
     각 컴포넌트의 초기화에 필요한 설정 정보를 담습니다.
     """
+    id: str  # 컴포넌트 고유 ID
     name: str
     type: ComponentType
     enabled: bool = True
